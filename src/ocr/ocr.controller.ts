@@ -1,10 +1,11 @@
-import { Controller, Post, UploadedFile, UseInterceptors, UseGuards } from '@nestjs/common';
+import { Controller, Post, UploadedFile, UseInterceptors, UseGuards, Get } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
 import { AuthGuard } from '@nestjs/passport';
 import { ApiTags, ApiOperation, ApiConsumes, ApiBody, ApiBearerAuth, ApiResponse } from '@nestjs/swagger';
 import { GetUser } from '../auth/get-user.decorator';
 import { User } from '../auth/entities/user.entity';
 import { OcrService } from './ocr.service';
+import { Bill } from './entities/bill.entity';
 
 @ApiTags('OCR')
 @Controller('ocr')
@@ -12,6 +13,14 @@ import { OcrService } from './ocr.service';
 @ApiBearerAuth() // Menandakan di Swagger bahwa butuh token
 export class OcrController {
     constructor(private readonly ocrService: OcrService) { }
+
+    @Get('/my-bills')
+    @ApiOperation({ summary: 'Mengambil riwayat semua struk milik pengguna' })
+    @ApiResponse({ status: 200, description: 'Berhasil mengambil data riwayat.', type: [Bill] })
+    @ApiResponse({ status: 401, description: 'Tidak terautentikasi.' })
+    getBillsForUser(@GetUser() user: User): Promise<Bill[]> {
+        return this.ocrService.getBillsForUser(user);
+    }
 
     @Post('upload')
     @UseInterceptors(FileInterceptor('file'))

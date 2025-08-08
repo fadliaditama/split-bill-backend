@@ -16,6 +16,21 @@ export class OcrService {
         private readonly httpService: HttpService, // Tambahkan ini
     ) { }
 
+    async getBillsForUser(user: User): Promise<Bill[]> {
+        // Mencari semua 'bill' di database yang memiliki 'userId' yang sama
+        // dengan id pengguna yang sedang login, diurutkan dari yang terbaru.
+        return this.billsRepository.find({
+            where: {
+                user: {
+                    id: user.id,
+                },
+            },
+            order: {
+                createdAt: 'DESC',
+            },
+        });
+    }
+
     // Ganti logika lama dengan yang ini
     async processAndSaveBill(imageBuffer: Buffer, user: User): Promise<Bill> {
         // 1. Tetap gunakan Tesseract untuk mendapatkan teks mentah
