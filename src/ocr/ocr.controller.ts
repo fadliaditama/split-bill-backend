@@ -1,4 +1,4 @@
-import { Controller, Post, UploadedFile, UseInterceptors, UseGuards, Get } from '@nestjs/common';
+import { Controller, Post, UploadedFile, UseInterceptors, UseGuards, Get, Param, Patch, Body } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
 import { AuthGuard } from '@nestjs/passport';
 import { ApiTags, ApiOperation, ApiConsumes, ApiBody, ApiBearerAuth, ApiResponse } from '@nestjs/swagger';
@@ -20,6 +20,12 @@ export class OcrController {
     @ApiResponse({ status: 401, description: 'Tidak terautentikasi.' })
     getBillsForUser(@GetUser() user: User): Promise<Bill[]> {
         return this.ocrService.getBillsForUser(user);
+    }
+
+    @Get('/:id')
+    @ApiOperation({ summary: 'Mengambil detail satu struk berdasarkan ID' })
+    getBillById(@Param('id') id: string, @GetUser() user: User) {
+        return this.ocrService.getBillById(id, user.id);
     }
 
     @Post('upload')
@@ -44,5 +50,15 @@ export class OcrController {
         @GetUser() user: User, // Mengambil data user yang sedang login
     ) {
         return this.ocrService.processAndSaveBill(file.buffer, user);
+    }
+
+    @Patch('/split/:id')
+    @ApiOperation({ summary: 'Menyimpan hasil pembagian tagihan untuk sebuah struk' })
+    saveSplitDetails(
+        @Param('id') id: string,
+        @Body() splitDetails: any,
+        @GetUser() user: User,
+    ) {
+        return this.ocrService.saveSplitDetails(id, splitDetails, user.id);
     }
 }

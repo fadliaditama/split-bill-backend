@@ -1,4 +1,4 @@
-import { BadRequestException, Injectable, InternalServerErrorException, ServiceUnavailableException } from '@nestjs/common';
+import { BadRequestException, Injectable, InternalServerErrorException, NotFoundException, ServiceUnavailableException, UnauthorizedException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { createWorker } from 'tesseract.js';
 import { Repository } from 'typeorm';
@@ -34,6 +34,24 @@ export class OcrService {
             where: { user: { id: user.id } },
             order: { createdAt: 'DESC' },
         });
+    }
+
+    async getBillById(billId: string, userId: string): Promise<any> { // Ubah return type ke any
+        const bill = await this.billsRepository.findOne({
+            where: { id: billId },
+            relations: ['user'],
+        });
+
+        if (!bill) {
+            throw new NotFoundException(`Tagihan dengan ID "${billId}" tidak ditemukan.`);
+        }
+
+        if (bill.user.id !== userId) {
+            throw new UnauthorizedException('Anda tidak memiliki akses ke tagihan ini.');
+        }
+
+        const { user, ...billDetails } = bill;
+        return billDetails;
     }
 
     async processAndSaveBill(imageBuffer: Buffer, user: User): Promise<any> {
@@ -143,4 +161,24 @@ export class OcrService {
             throw new InternalServerErrorException('Gagal berkomunikasi dengan layanan AI.');
         }
     }
+
+    async saveSplitDetails(billId: string, splitDetails: any, userId: string): Promise<Bill> {
+        // 1. Cari tagihan berdasarkan ID
+        const bill = await this.billsRepository.findOneBy({ id: billId });
+    
+        if (!bill) {
+          throw new NotFoundException(`Tagihan dengan ID "${billId}" tidak ditemukan.`);
+        }
+    
+        // 2. Verifikasi kepemilikan (PENTING untuk keamanan)
+        // Kita perlu memuat relasi user untuk mengecek
+        const billWithOwner = await this.billsRepository.findOne({ where: { id: billId }, relations: ['user'] });
+        if (!billWithOwner || billWithOwner.user.id !== userId) {
+          throw new UnauthorizedException('Anda tidak memiliki akses ke tagihan ini.');
+        }
+    
+        // 3. Simpan data baru dan kembalikan
+        bill.splitDetails = splitDetails;
+        return this.billsRepository.save(bill);
+      }
 }

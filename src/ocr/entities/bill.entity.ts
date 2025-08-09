@@ -31,6 +31,9 @@ export class Bill {
     @Column({ type: 'text', nullable: true })
     imageUrl: string;
 
+    @Column({ type: 'jsonb', nullable: true })
+    splitDetails: any;
+
     // Menandakan satu Bill dimiliki oleh satu User
     @ManyToOne(() => User, (user) => user.bills)
     @JoinColumn({ name: 'userId' }) // Ini akan membuat kolom 'userId' di tabel
