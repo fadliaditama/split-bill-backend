@@ -2,22 +2,25 @@ import { Module } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { AuthModule } from './auth/auth.module';
 import { OcrModule } from './ocr/ocr.module';
-import { ConfigModule } from '@nestjs/config';
+import { ConfigModule, ConfigService } from '@nestjs/config';
 
 @Module({
   imports: [
     ConfigModule.forRoot({
       isGlobal: true,
     }),
-    TypeOrmModule.forRoot({
-      type: 'postgres',
-      host: 'localhost',
-      port: 5433, // Gunakan port 5433 sesuai docker-compose.yml
-      username: 'user',
-      password: 'password',
-      database: 'splitbill',
-      autoLoadEntities: true, // Otomatis memuat semua file *.entity.ts
-      synchronize: true, // Otomatis membuat tabel DB (hanya untuk development!)
+    TypeOrmModule.forRootAsync({
+      imports: [ConfigModule],
+      inject: [ConfigService],
+      useFactory: (configService: ConfigService) => ({
+        type: 'postgres',
+        url: configService.get('DATABASE_URL'), // <-- Membaca dari environment variable
+        autoLoadEntities: true,
+        synchronize: true, // Untuk development, pertimbangkan untuk false di produksi nanti
+        ssl: {
+          rejectUnauthorized: false, // Diperlukan untuk koneksi ke Supabase/cloud DB
+        },
+      }),
     }),
     AuthModule,
     OcrModule,
