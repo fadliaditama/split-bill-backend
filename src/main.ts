@@ -5,19 +5,22 @@ import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
 async function bootstrap() {
   const app = await NestFactory.create(AppModule);
 
-  // Mengizinkan request dari aplikasi lain (seperti Angular)
-  app.enableCors();
+  // Konfigurasi CORS yang lebih spesifik
+  app.enableCors({
+    origin: '*', // Izinkan semua origin, atau ganti dengan URL frontend Anda untuk keamanan
+    methods: 'GET,HEAD,PUT,PATCH,POST,DELETE',
+    credentials: true,
+  });
 
-  // Konfigurasi untuk dokumentasi API (Swagger)
   const config = new DocumentBuilder()
     .setTitle('Split Bill API')
-    .setDescription('API untuk registrasi, login, dan pemrosesan struk.')
     .setVersion('1.0')
-    .addBearerAuth() // Penting untuk testing endpoint terproteksi
+    .addBearerAuth()
     .build();
   const document = SwaggerModule.createDocument(app, config);
-  SwaggerModule.setup('docs', app, document); // Akses dokumentasi di http://localhost:3000/docs
+  SwaggerModule.setup('docs', app, document);
 
-  await app.listen(3000);
+  // Port tidak perlu didefinisikan secara eksplisit, Vercel akan menanganinya
+  await app.listen(process.env.PORT || 3000);
 }
 bootstrap();
