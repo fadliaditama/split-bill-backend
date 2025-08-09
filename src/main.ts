@@ -20,6 +20,16 @@ async function bootstrap() {
   const document = SwaggerModule.createDocument(app, config);
   SwaggerModule.setup('docs', app, document);
 
+  SwaggerModule.setup('docs', app, document, {
+    // Muat aset UI dari CDN jsDelivr yang cepat
+    customCssUrl:
+      'https://cdnjs.cloudflare.com/ajax/libs/swagger-ui/5.11.0/swagger-ui.min.css',
+    customJs: [
+      'https://cdnjs.cloudflare.com/ajax/libs/swagger-ui/5.11.0/swagger-ui-bundle.min.js',
+      'https://cdnjs.cloudflare.com/ajax/libs/swagger-ui/5.11.0/swagger-ui-standalone-preset.min.js',
+    ],
+  });
+
   // Port tidak perlu didefinisikan secara eksplisit, Vercel akan menanganinya
   await app.listen(process.env.PORT || 3000);
 }
