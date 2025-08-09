@@ -186,4 +186,39 @@ export class OcrService {
     
         return this.billsRepository.save(bill);
       }
+
+      async deleteBill(billId: string, userId: string): Promise<{ message: string }> {
+        // 1. Verifikasi kepemilikan tagihan
+        const bill = await this.billsRepository.findOne({
+          where: { id: billId },
+          relations: ['user'],
+        });
+    
+        if (!bill) {
+          throw new NotFoundException(`Tagihan dengan ID "${billId}" tidak ditemukan.`);
+        }
+    
+        if (bill.user.id !== userId) {
+          throw new UnauthorizedException('Anda tidak memiliki akses ke tagihan ini.');
+        }
+    
+        // 2. Hapus gambar dari Supabase Storage (jika ada)
+        if (bill.imageUrl) {
+          try {
+            // Ekstrak path file dari URL. Contoh: public/userId/filename.jpg
+            const filePath = bill.imageUrl.substring(bill.imageUrl.indexOf('public/'));
+            const bucketName = 'receipt-images';
+            
+            await this.supabase.storage.from(bucketName).remove([filePath]);
+          } catch (storageError) {
+            // Tetap lanjutkan meskipun gagal hapus file, tapi catat errornya
+            console.error('Gagal menghapus file dari storage:', storageError);
+          }
+        }
+    
+        // 3. Hapus data dari database PostgreSQL
+        await this.billsRepository.remove(bill);
+    
+        return { message: 'Transaksi berhasil dihapus.' };
+      }
 }

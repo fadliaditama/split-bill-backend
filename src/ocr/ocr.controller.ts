@@ -1,4 +1,4 @@
-import { Controller, Post, UploadedFile, UseInterceptors, UseGuards, Get, Param, Patch, Body } from '@nestjs/common';
+import { Controller, Post, UploadedFile, UseInterceptors, UseGuards, Get, Param, Patch, Body, Delete } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
 import { AuthGuard } from '@nestjs/passport';
 import { ApiTags, ApiOperation, ApiConsumes, ApiBody, ApiBearerAuth, ApiResponse, ApiProperty } from '@nestjs/swagger';
@@ -68,5 +68,11 @@ export class OcrController {
         @GetUser() user: User,
     ) {
         return this.ocrService.saveSplitDetails(id, saveSplitDto, user.id);
+    }
+
+    @Delete('/:id')
+    @ApiOperation({ summary: 'Menghapus satu struk berdasarkan ID' })
+    deleteBill(@Param('id') id: string, @GetUser() user: User) {
+        return this.ocrService.deleteBill(id, user.id);
     }
 }
