@@ -1,6 +1,12 @@
 import { Entity, PrimaryGeneratedColumn, Column, ManyToOne, JoinColumn } from 'typeorm';
 import { User } from '../../auth/entities/user.entity';
 
+export enum BillStatus {
+    PROCESSING = 'PROCESSING',
+    COMPLETED = 'COMPLETED',
+    FAILED = 'FAILED',
+  }
+
 @Entity()
 export class Bill {
     @PrimaryGeneratedColumn('uuid')
@@ -33,6 +39,13 @@ export class Bill {
 
     @Column({ type: 'jsonb', nullable: true })
     splitDetails: any;
+
+    @Column({
+        type: 'enum',
+        enum: BillStatus,
+        default: BillStatus.PROCESSING,
+      })
+      status: BillStatus;
 
     // Menandakan satu Bill dimiliki oleh satu User
     @ManyToOne(() => User, (user) => user.bills)
