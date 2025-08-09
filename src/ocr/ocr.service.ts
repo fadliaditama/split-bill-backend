@@ -3,53 +3,60 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { createWorker } from 'tesseract.js';
 import { Repository } from 'typeorm';
 import { User } from '../auth/entities/user.entity';
-import { Bill } from '../ocr/entities/bill.entity';
+import { Bill } from './entities/bill.entity';
 import { HttpService } from '@nestjs/axios';
 import { firstValueFrom } from 'rxjs';
 import { AxiosError } from 'axios';
+import { ConfigService } from '@nestjs/config';
+import { createClient, SupabaseClient } from '@supabase/supabase-js';
 
 @Injectable()
 export class OcrService {
-    // Injeksi HttpService untuk melakukan panggilan API
+    private supabase: SupabaseClient;
+
     constructor(
         @InjectRepository(Bill)
         private billsRepository: Repository<Bill>,
-        private readonly httpService: HttpService, // Tambahkan ini
-    ) { }
+        private readonly httpService: HttpService,
+        private readonly configService: ConfigService,
+    ) {
+        const supabaseUrl = this.configService.get<string>('SUPABASE_URL');
+        const supabaseKey = this.configService.get<string>('SUPABASE_KEY');
+        
+        if (!supabaseUrl || !supabaseKey) {
+            throw new Error('Supabase URL and Key must be provided in .env file');
+        }
+        this.supabase = createClient(supabaseUrl, supabaseKey);
+    }
 
     async getBillsForUser(user: User): Promise<Bill[]> {
-        // Mencari semua 'bill' di database yang memiliki 'userId' yang sama
-        // dengan id pengguna yang sedang login, diurutkan dari yang terbaru.
         return this.billsRepository.find({
-            where: {
-                user: {
-                    id: user.id,
-                },
-            },
-            order: {
-                createdAt: 'DESC',
-            },
+            where: { user: { id: user.id } },
+            order: { createdAt: 'DESC' },
         });
     }
 
-    // Ganti logika lama dengan yang ini
-    async processAndSaveBill(imageBuffer: Buffer, user: User): Promise<any> { // Ubah return type ke any
+    async processAndSaveBill(imageBuffer: Buffer, user: User): Promise<any> {
+        // 1. Unggah gambar ke Supabase
+        const imageUrl = await this.uploadToSupabase(imageBuffer, user.id);
+
+        // 2. Lanjutkan proses OCR dan AI
         const worker = await createWorker('ind');
         const ret = await worker.recognize(imageBuffer);
         const rawText = ret.data.text;
         await worker.terminate();
-
         const parsedData = await this.extractDataWithGemini(rawText);
 
+        // 3. Siapkan data untuk disimpan
         const billData: Partial<Bill> = {
             items: parsedData.items,
             total: parsedData.total,
             storeName: parsedData.storeName,
             storeLocation: parsedData.location,
+            imageUrl: imageUrl, // <-- Simpan URL dari Supabase
             rawText: rawText,
             user: user,
         };
-
         if (parsedData.date) {
             billData.purchaseDate = new Date(parsedData.date);
         }
@@ -58,19 +65,36 @@ export class OcrService {
 
         try {
             const savedBill = await this.billsRepository.save(bill);
-
-            // --- INI PERBAIKANNYA ---
-            // 1. Destructure 'user' dan simpan sisa propertinya di 'billDetails'
             const { user, ...billDetails } = savedBill;
-
-            // 2. Kembalikan objek baru yang tidak mengandung properti 'user'
             return billDetails;
-            // ------------------------
-
         } catch (error) {
             console.error('Error saving bill:', error);
             throw new InternalServerErrorException('Gagal menyimpan struk ke database.');
         }
+    }
+
+    private async uploadToSupabase(buffer: Buffer, userId: string): Promise<string> {
+        // Nama bucket harus sama dengan yang Anda buat di dashboard Supabase
+        const bucketName = 'receipt-images'; 
+        const fileName = `public/${userId}/${Date.now()}_${Math.round(Math.random() * 1E9)}.jpg`;
+
+        const { data, error } = await this.supabase.storage
+            .from(bucketName)
+            .upload(fileName, buffer, {
+                contentType: 'image/jpeg',
+                upsert: false,
+            });
+
+        if (error) {
+            console.error('Error uploading to Supabase:', error);
+            throw new InternalServerErrorException('Gagal mengunggah gambar ke storage.');
+        }
+
+        const { data: { publicUrl } } = this.supabase.storage
+            .from(bucketName)
+            .getPublicUrl(data.path);
+
+        return publicUrl;
     }
 
     private async extractDataWithGemini(
@@ -82,57 +106,40 @@ export class OcrService {
         location: string;
         date: string | null;
     }> {
-        const apiKey = process.env.GEMINI_API_KEY || 'AIzaSyCPy6M4CUmQ_WMAyn364B8qundtbvUwARQ';
+        const apiKey = this.configService.get<string>('GEMINI_API_KEY');
         const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash-latest:generateContent?key=${apiKey}`;
 
         const prompt = `
-      Analisis teks dari struk belanja ini dan ekstrak informasi berikut ke dalam format JSON yang valid:
-      1. "storeName": Nama toko atau merchant (contoh: "INDOMARET").
-      2. "location": Alamat atau lokasi cabang dari toko (contoh: "CIDATAR - KAB GARUT").
-      3. "date": Tanggal transaksi dalam format YYYY-MM-DD (contoh: "2020-11-07").
-      4. "items": Sebuah array objek, di mana setiap objek berisi "name" (string), "quantity" (number), dan "price" (number, harga total untuk item itu).
-      5. "total": Sebuah number yang merupakan total akhir dari struk.
-
-      Jika salah satu informasi (storeName, location, date) tidak ditemukan, kembalikan nilai null untuk key tersebut.
-      Hanya kembalikan objek JSON, tanpa penjelasan tambahan atau markdown formatting.
-
-      Teks struk:
-      ---
-      ${text}
-      ---
-    `;
+            Analisis teks dari struk belanja ini dan ekstrak informasi berikut ke dalam format JSON yang valid:
+            1. "storeName": Nama toko atau merchant (contoh: "INDOMARET").
+            2. "location": Alamat atau lokasi cabang dari toko (contoh: "CIDATAR - KAB GARUT").
+            3. "date": Tanggal transaksi dalam format YYYY-MM-DD (contoh: "2020-11-07").
+            4. "items": Sebuah array objek, di mana setiap objek berisi "name" (string), "quantity" (number), dan "price" (number, harga total untuk item itu).
+            5. "total": Sebuah number yang merupakan total akhir dari struk.
+            Jika salah satu informasi (storeName, location, date) tidak ditemukan, kembalikan nilai null untuk key tersebut.
+            Hanya kembalikan objek JSON, tanpa penjelasan tambahan atau markdown formatting.
+            Teks struk:
+            ---
+            ${text}
+            ---
+        `;
 
         try {
             const response = await firstValueFrom(
                 this.httpService.post(url, { contents: [{ parts: [{ text: prompt }] }] }),
             );
-
-            // Cek jika Gemini tidak bisa memproses (safety reasons, dll)
             if (!response.data.candidates || response.data.candidates.length === 0) {
-                console.error('Gemini response blocked or empty:', response.data);
                 throw new InternalServerErrorException('AI tidak dapat memproses teks dari struk ini.');
             }
-
             const jsonString = response.data.candidates[0].content.parts[0].text.replace(/```json|```/g, '').trim();
             return JSON.parse(jsonString);
-
         } catch (error) {
-            // Tangani error dari Axios (panggilan HTTP)
             if (error instanceof AxiosError && error.response) {
                 const status = error.response.status;
                 const data = error.response.data.error;
-                console.error(`Error dari Gemini API (Status: ${status}):`, data.message);
-
-                if (status === 400 && data.status === 'INVALID_ARGUMENT') {
-                    throw new BadRequestException(`API Key tidak valid atau salah format. Pastikan sudah benar.`);
-                }
-                if (status === 503 || data.status === 'UNAVAILABLE') {
-                    throw new ServiceUnavailableException('Model AI sedang sibuk (overloaded). Coba lagi beberapa saat.');
-                }
+                if (status === 400) throw new BadRequestException(`API Key tidak valid atau salah format.`);
+                if (status === 503) throw new ServiceUnavailableException('Model AI sedang sibuk. Coba lagi.');
             }
-
-            // Error umum lainnya
-            console.error('Terjadi error saat memanggil Gemini API:', error);
             throw new InternalServerErrorException('Gagal berkomunikasi dengan layanan AI.');
         }
     }
