@@ -12,15 +12,32 @@ import { ConfigModule, ConfigService } from '@nestjs/config';
     TypeOrmModule.forRootAsync({
       imports: [ConfigModule],
       inject: [ConfigService],
-      useFactory: (configService: ConfigService) => ({
-        type: 'postgres',
-        url: configService.get('DATABASE_URL'), // <-- Membaca dari environment variable
-        autoLoadEntities: true,
-        synchronize: true, // Untuk development, pertimbangkan untuk false di produksi nanti
-        ssl: {
-          rejectUnauthorized: false, // Diperlukan untuk koneksi ke Supabase/cloud DB
-        },
-      }),
+      useFactory: (configService: ConfigService) => {
+        const dbHost = configService.get<string>('DB_HOST');
+        const dbPort = configService.get<string>('DB_PORT');
+        const dbUser = configService.get<string>('DB_USER');
+        const dbPassword = configService.get<string>('DB_PASSWORD');
+        const dbName = configService.get<string>('DB_NAME');
+
+        // Lakukan pengecekan untuk memastikan semua variabel ada
+        if (!dbHost || !dbPort || !dbUser || !dbPassword || !dbName) {
+          throw new Error('Database configuration variables are not set in .env file');
+        }
+
+        return {
+          type: 'postgres',
+          host: dbHost,
+          port: parseInt(dbPort, 10), // Tambahkan radix 10 untuk praktik terbaik
+          username: dbUser,
+          password: dbPassword,
+          database: dbName,
+          autoLoadEntities: true,
+          synchronize: true,
+          ssl: {
+            rejectUnauthorized: false,
+          },
+        };
+      },
     }),
     AuthModule,
     OcrModule,
