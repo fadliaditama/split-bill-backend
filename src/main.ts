@@ -2,28 +2,22 @@ import { NestFactory } from '@nestjs/core';
 import { AppModule } from './app.module';
 import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
 
-let cachedServer: any;
-
-async function bootstrapServer() {
+async function bootstrap() {
   const app = await NestFactory.create(AppModule);
+
+  // Mengizinkan request dari aplikasi lain (seperti Angular)
   app.enableCors();
 
+  // Konfigurasi untuk dokumentasi API (Swagger)
   const config = new DocumentBuilder()
     .setTitle('Split Bill API')
     .setDescription('API untuk registrasi, login, dan pemrosesan struk.')
     .setVersion('1.0')
-    .addBearerAuth()
+    .addBearerAuth() // Penting untuk testing endpoint terproteksi
     .build();
   const document = SwaggerModule.createDocument(app, config);
-  SwaggerModule.setup('docs', app, document);
+  SwaggerModule.setup('docs', app, document); // Akses dokumentasi di http://localhost:3000/docs
 
-  await app.init();
-  return app.getHttpAdapter().getInstance();
+  await app.listen(3000);
 }
-
-export default async function handler(req: any, res: any) {
-  if (!cachedServer) {
-    cachedServer = await bootstrapServer();
-  }
-  return cachedServer(req, res);
-}
+bootstrap();
