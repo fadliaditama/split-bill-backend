@@ -10,56 +10,57 @@ import { Bill } from './entities/bill.entity';
 class SaveSplitDto {
     @ApiProperty()
     splitDetails: any;
-
+  
     @ApiProperty()
     total: number;
-}
+  }
 
 @ApiTags('OCR')
 @Controller('ocr')
+@UseGuards(AuthGuard()) // Melindungi semua endpoint di controller ini
+@ApiBearerAuth() // Menandakan di Swagger bahwa butuh token
 export class OcrController {
     constructor(private readonly ocrService: OcrService) { }
 
-    @Post('/upload')
-    @UseGuards(AuthGuard())
-    @ApiBearerAuth()
-    @UseInterceptors(FileInterceptor('file'))
-    @ApiOperation({ summary: 'Menerima struk untuk diproses di latar belakang' })
-    @ApiConsumes('multipart/form-data')
-    @ApiBody({
-        schema: {
-            type: 'object',
-            properties: {
-                file: { type: 'string', format: 'binary' },
-            },
-        },
-    })
-    async initiateUpload(@UploadedFile() file: Express.Multer.File, @GetUser() user: User) {
-        const bill = await this.ocrService.initiateBillProcessing(file.buffer, user);
-        // Jalankan proses berat di latar belakang tanpa menunggu (fire-and-forget)
-        this.ocrService.processQueuedBill(bill.id);
-        return { message: 'Struk diterima dan sedang diproses.', bill };
-    }
-
     @Get('/my-bills')
-    @UseGuards(AuthGuard())
-    @ApiBearerAuth()
     @ApiOperation({ summary: 'Mengambil riwayat semua struk milik pengguna' })
+    @ApiResponse({ status: 200, description: 'Berhasil mengambil data riwayat.', type: [Bill] })
+    @ApiResponse({ status: 401, description: 'Tidak terautentikasi.' })
     getBillsForUser(@GetUser() user: User): Promise<Bill[]> {
         return this.ocrService.getBillsForUser(user);
     }
 
     @Get('/:id')
-    @UseGuards(AuthGuard())
-    @ApiBearerAuth()
     @ApiOperation({ summary: 'Mengambil detail satu struk berdasarkan ID' })
     getBillById(@Param('id') id: string, @GetUser() user: User) {
         return this.ocrService.getBillById(id, user.id);
     }
 
+    @Post('upload')
+    @UseInterceptors(FileInterceptor('file'))
+    @ApiOperation({ summary: 'Unggah dan proses gambar struk' })
+    @ApiConsumes('multipart/form-data')
+    @ApiBody({
+        schema: {
+            type: 'object',
+            properties: {
+                file: {
+                    type: 'string',
+                    format: 'binary',
+                },
+            },
+        },
+    })
+    @ApiResponse({ status: 201, description: 'Struk berhasil diproses dan disimpan.' })
+    @ApiResponse({ status: 401, description: 'Tidak terautentikasi (token tidak valid).' })
+    uploadFile(
+        @UploadedFile() file: Express.Multer.File,
+        @GetUser() user: User, // Mengambil data user yang sedang login
+    ) {
+        return this.ocrService.processAndSaveBill(file.buffer, user);
+    }
+
     @Patch('/split/:id')
-    @UseGuards(AuthGuard())
-    @ApiBearerAuth()
     @ApiOperation({ summary: 'Menyimpan hasil pembagian tagihan untuk sebuah struk' })
     saveSplitDetails(
         @Param('id') id: string,
@@ -70,8 +71,6 @@ export class OcrController {
     }
 
     @Delete('/:id')
-    @UseGuards(AuthGuard())
-    @ApiBearerAuth()
     @ApiOperation({ summary: 'Menghapus satu struk berdasarkan ID' })
     deleteBill(@Param('id') id: string, @GetUser() user: User) {
         return this.ocrService.deleteBill(id, user.id);
