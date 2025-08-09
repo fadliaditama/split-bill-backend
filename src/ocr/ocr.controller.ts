@@ -1,11 +1,19 @@
 import { Controller, Post, UploadedFile, UseInterceptors, UseGuards, Get, Param, Patch, Body } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
 import { AuthGuard } from '@nestjs/passport';
-import { ApiTags, ApiOperation, ApiConsumes, ApiBody, ApiBearerAuth, ApiResponse } from '@nestjs/swagger';
+import { ApiTags, ApiOperation, ApiConsumes, ApiBody, ApiBearerAuth, ApiResponse, ApiProperty } from '@nestjs/swagger';
 import { GetUser } from '../auth/get-user.decorator';
 import { User } from '../auth/entities/user.entity';
 import { OcrService } from './ocr.service';
 import { Bill } from './entities/bill.entity';
+
+class SaveSplitDto {
+    @ApiProperty()
+    splitDetails: any;
+  
+    @ApiProperty()
+    total: number;
+  }
 
 @ApiTags('OCR')
 @Controller('ocr')
@@ -56,9 +64,9 @@ export class OcrController {
     @ApiOperation({ summary: 'Menyimpan hasil pembagian tagihan untuk sebuah struk' })
     saveSplitDetails(
         @Param('id') id: string,
-        @Body() splitDetails: any,
+        @Body() saveSplitDto: SaveSplitDto,
         @GetUser() user: User,
     ) {
-        return this.ocrService.saveSplitDetails(id, splitDetails, user.id);
+        return this.ocrService.saveSplitDetails(id, saveSplitDto, user.id);
     }
 }

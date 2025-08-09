@@ -123,6 +123,8 @@ export class OcrService {
         storeName: string;
         location: string;
         date: string | null;
+        tax: number;
+        serviceCharge: number;
     }> {
         const apiKey = this.configService.get<string>('GEMINI_API_KEY');
         const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash-latest:generateContent?key=${apiKey}`;
@@ -134,6 +136,8 @@ export class OcrService {
             3. "date": Tanggal transaksi dalam format YYYY-MM-DD (contoh: "2020-11-07").
             4. "items": Sebuah array objek, di mana setiap objek berisi "name" (string), "quantity" (number), dan "price" (number, harga total untuk item itu).
             5. "total": Sebuah number yang merupakan total akhir dari struk.
+            6. "tax": Jumlah total pajak (PPN/PB1). Jika tidak ada, kembalikan 0.
+            7. "serviceCharge": Jumlah total biaya servis. Jika tidak ada, kembalikan 0.
             Jika salah satu informasi (storeName, location, date) tidak ditemukan, kembalikan nilai null untuk key tersebut.
             Hanya kembalikan objek JSON, tanpa penjelasan tambahan atau markdown formatting.
             Teks struk:
@@ -162,23 +166,24 @@ export class OcrService {
         }
     }
 
-    async saveSplitDetails(billId: string, splitDetails: any, userId: string): Promise<Bill> {
-        // 1. Cari tagihan berdasarkan ID
+    async saveSplitDetails(
+        billId: string, 
+        saveData: { splitDetails: any, total: number },
+        userId: string
+      ): Promise<Bill> {
         const bill = await this.billsRepository.findOneBy({ id: billId });
-    
         if (!bill) {
           throw new NotFoundException(`Tagihan dengan ID "${billId}" tidak ditemukan.`);
         }
     
-        // 2. Verifikasi kepemilikan (PENTING untuk keamanan)
-        // Kita perlu memuat relasi user untuk mengecek
         const billWithOwner = await this.billsRepository.findOne({ where: { id: billId }, relations: ['user'] });
         if (!billWithOwner || billWithOwner.user.id !== userId) {
           throw new UnauthorizedException('Anda tidak memiliki akses ke tagihan ini.');
         }
     
-        // 3. Simpan data baru dan kembalikan
-        bill.splitDetails = splitDetails;
+        bill.splitDetails = saveData.splitDetails;
+        bill.total = saveData.total;
+    
         return this.billsRepository.save(bill);
       }
 }
