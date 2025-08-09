@@ -9,6 +9,7 @@ import { firstValueFrom } from 'rxjs';
 import { AxiosError } from 'axios';
 import { ConfigService } from '@nestjs/config';
 import { createClient, SupabaseClient } from '@supabase/supabase-js';
+import * as path from 'path';
 
 @Injectable()
 export class OcrService {
@@ -59,7 +60,10 @@ export class OcrService {
         const imageUrl = await this.uploadToSupabase(imageBuffer, user.id);
 
         // 2. Lanjutkan proses OCR dan AI
-        const worker = await createWorker('ind');
+        const worker = await createWorker('ind', 1, {
+            corePath: path.join(process.cwd(), 'tesseract-files/tesseract-core-simd.wasm'),
+            langPath: path.join(process.cwd(), 'tesseract-files'),
+        });
         const ret = await worker.recognize(imageBuffer);
         const rawText = ret.data.text;
         await worker.terminate();
