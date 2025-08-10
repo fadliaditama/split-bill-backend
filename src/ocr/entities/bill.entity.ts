@@ -19,7 +19,7 @@ export class Bill {
     @Column({ type: 'jsonb', default: [] })
     items: any[];
 
-    @Column()
+    @Column({nullable: true})
     total: number;
 
     @Column({ type: 'text' })
