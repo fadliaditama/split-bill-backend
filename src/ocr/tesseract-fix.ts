@@ -24,12 +24,18 @@ export class TesseractFix {
      * Inisialisasi worker dengan konfigurasi khusus untuk Vercel
      */
     static async initializeWorker(): Promise<any> {
+        // Deteksi environment terlebih dahulu
+        isVercelEnvironment = this.detectEnvironment();
+
+        // Jika di Vercel, langsung return null tanpa mencoba inisialisasi
+        if (isVercelEnvironment) {
+            console.log('Vercel environment detected, skipping Tesseract worker initialization');
+            return null;
+        }
+
         if (cachedWorker && isWorkerInitialized) {
             return cachedWorker;
         }
-
-        // Deteksi environment
-        isVercelEnvironment = this.detectEnvironment();
 
         try {
             console.log(`Initializing Tesseract worker in ${isVercelEnvironment ? 'Vercel' : 'local'} environment...`);
@@ -80,6 +86,15 @@ export class TesseractFix {
      * Lakukan OCR dengan retry dan fallback
      */
     static async recognizeText(imageBuffer: Buffer, maxRetries: number = 3): Promise<string> {
+        // Deteksi environment terlebih dahulu
+        isVercelEnvironment = this.detectEnvironment();
+
+        // Jika di Vercel, langsung gunakan fallback tanpa mencoba Tesseract
+        if (isVercelEnvironment) {
+            console.log('Vercel environment detected, using fallback OCR method');
+            return this.fallbackOCR(imageBuffer);
+        }
+
         // Jika di Vercel dan worker gagal diinisialisasi, gunakan fallback
         if (isVercelEnvironment && !cachedWorker) {
             console.log('Using fallback OCR method for Vercel environment');
@@ -144,6 +159,13 @@ export class TesseractFix {
      * Fallback OCR method untuk Vercel environment
      */
     private static async fallbackOCR(imageBuffer: Buffer): Promise<string> {
+        // Di Vercel, langsung return placeholder text tanpa mencoba OCR
+        if (isVercelEnvironment) {
+            console.log('Vercel environment detected, skipping OCR completely');
+            return 'OCR tidak tersedia di environment Vercel. Silakan upload gambar di environment local untuk hasil yang optimal.';
+        }
+
+        // Hanya coba fallback OCR jika bukan di Vercel
         try {
             console.log('Attempting fallback OCR with English language...');
 
