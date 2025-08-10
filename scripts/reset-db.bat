@@ -1,0 +1,63 @@
+@echo off
+echo 🔄 Resetting Database...
+
+REM Check if .env file exists
+if not exist .env (
+    echo ❌ .env file not found. Please run dev-setup.bat first.
+    pause
+    exit /b 1
+)
+
+REM Confirm action
+set /p confirm="⚠️  This will DELETE ALL DATA in the database. Are you sure? (y/N): "
+if /i not "%confirm%"=="y" (
+    echo ❌ Database reset cancelled.
+    pause
+    exit /b 1
+)
+
+REM Stop and remove containers
+echo 🐳 Stopping Docker containers...
+docker-compose down
+
+REM Remove volume data
+echo 🗑️  Removing database volume...
+docker volume rm split-bill-backend_postgres_data
+
+REM Start fresh database
+echo 🐘 Starting fresh PostgreSQL database...
+docker-compose up -d postgres
+
+REM Wait for database to be ready
+echo ⏳ Waiting for database to be ready...
+:wait_loop
+docker-compose exec -T postgres pg_isready -U postgres >nul 2>&1
+if %errorlevel% neq 0 (
+    echo    Waiting for PostgreSQL...
+    timeout /t 2 /nobreak >nul
+    goto wait_loop
+)
+echo ✅ Database is ready!
+
+REM Check if dependencies are installed
+if not exist "node_modules" (
+    echo 📦 Installing dependencies...
+    npm install
+)
+
+REM Run migrations
+echo 🔄 Running migrations...
+npm run migration:run
+
+if %errorlevel% equ 0 (
+    echo ✅ Database reset completed successfully!
+    echo.
+    echo Next steps:
+    echo 1. Run 'scripts\seed.bat' to add sample data
+    echo 2. Run 'scripts\start-dev.bat' to start the application
+) else (
+    echo ❌ Database reset failed!
+    pause
+    exit /b 1
+)
+pause 

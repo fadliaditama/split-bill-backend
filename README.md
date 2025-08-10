@@ -1,98 +1,197 @@
-<p align="center">
-  <a href="http://nestjs.com/" target="blank"><img src="https://nestjs.com/img/logo-small.svg" width="120" alt="Nest Logo" /></a>
-</p>
+# Split Bill Backend
 
-[circleci-image]: https://img.shields.io/circleci/build/github/nestjs/nest/master?token=abc123def456
-[circleci-url]: https://circleci.com/gh/nestjs/nest
+Backend API untuk aplikasi split bill yang memungkinkan pengguna mengunggah struk belanja, melakukan OCR, dan membagi tagihan dengan AI.
 
-  <p align="center">A progressive <a href="http://nodejs.org" target="_blank">Node.js</a> framework for building efficient and scalable server-side applications.</p>
-    <p align="center">
-<a href="https://www.npmjs.com/~nestjscore" target="_blank"><img src="https://img.shields.io/npm/v/@nestjs/core.svg" alt="NPM Version" /></a>
-<a href="https://www.npmjs.com/~nestjscore" target="_blank"><img src="https://img.shields.io/npm/l/@nestjs/core.svg" alt="Package License" /></a>
-<a href="https://www.npmjs.com/~nestjscore" target="_blank"><img src="https://img.shields.io/npm/dm/@nestjs/common.svg" alt="NPM Downloads" /></a>
-<a href="https://circleci.com/gh/nestjs/nest" target="_blank"><img src="https://img.shields.io/circleci/build/github/nestjs/nest/master" alt="CircleCI" /></a>
-<a href="https://discord.gg/G7Qnnhy" target="_blank"><img src="https://img.shields.io/badge/discord-online-brightgreen.svg" alt="Discord"/></a>
-<a href="https://opencollective.com/nest#backer" target="_blank"><img src="https://opencollective.com/nest/backers/badge.svg" alt="Backers on Open Collective" /></a>
-<a href="https://opencollective.com/nest#sponsor" target="_blank"><img src="https://opencollective.com/nest/sponsors/badge.svg" alt="Sponsors on Open Collective" /></a>
-  <a href="https://paypal.me/kamilmysliwiec" target="_blank"><img src="https://img.shields.io/badge/Donate-PayPal-ff3f59.svg" alt="Donate us"/></a>
-    <a href="https://opencollective.com/nest#sponsor"  target="_blank"><img src="https://img.shields.io/badge/Support%20us-Open%20Collective-41B883.svg" alt="Support us"></a>
-  <a href="https://twitter.com/nestframework" target="_blank"><img src="https://img.shields.io/twitter/follow/nestframework.svg?style=social&label=Follow" alt="Follow us on Twitter"></a>
-</p>
-  <!--[![Backers on Open Collective](https://opencollective.com/nest/backers/badge.svg)](https://opencollective.com/nest#backer)
-  [![Sponsors on Open Collective](https://opencollective.com/nest/sponsors/badge.svg)](https://opencollective.com/nest#sponsor)-->
+## Fitur Utama
 
-## Description
+- 🔐 **Authentication & Authorization** - JWT-based auth dengan user management
+- 📸 **Image Upload** - Upload gambar struk ke Supabase Storage
+- 🔍 **OCR Processing** - Ekstraksi teks dari gambar menggunakan Tesseract.js
+- 🤖 **AI Data Extraction** - Parsing data struk menggunakan Google Gemini AI
+- 💰 **Bill Management** - CRUD operations untuk tagihan
+- 👥 **Split Bill** - Fitur untuk membagi tagihan antar pengguna
+- 🗄️ **Database** - PostgreSQL dengan TypeORM
 
-[Nest](https://github.com/nestjs/nest) framework TypeScript starter repository.
+## Tech Stack
 
-## Project setup
+- **Framework**: NestJS
+- **Database**: PostgreSQL
+- **ORM**: TypeORM
+- **Storage**: Supabase Storage
+- **OCR**: Tesseract.js
+- **AI**: Google Gemini API
+- **Authentication**: JWT
+- **Deployment**: Vercel
 
-```bash
-$ npm install
+## Prerequisites
+
+- Node.js 18+
+- PostgreSQL database
+- Supabase account
+- Google Gemini API key
+
+## Environment Variables
+
+Buat file `.env` di root directory dengan konfigurasi berikut:
+
+```env
+# Database Configuration
+DATABASE_URL=postgresql://username:password@localhost:5432/split_bill_db
+
+# JWT Configuration
+JWT_SECRET=your-super-secret-jwt-key-here
+JWT_EXPIRES_IN=7d
+
+# Supabase Configuration
+SUPABASE_URL=https://your-project.supabase.co
+SUPABASE_KEY=your-supabase-anon-key
+
+# Gemini AI Configuration
+GEMINI_API_KEY=your-gemini-api-key-here
+
+# Application Configuration
+PORT=3000
+NODE_ENV=development
 ```
 
-## Compile and run the project
+## Setup Project
+
+### 1. Install Dependencies
 
 ```bash
-# development
-$ npm run start
-
-# watch mode
-$ npm run start:dev
-
-# production mode
-$ npm run start:prod
+npm install
 ```
 
-## Run tests
+### 2. Database Setup
+
+Pastikan PostgreSQL database sudah berjalan dan buat database baru:
+
+```sql
+CREATE DATABASE split_bill_db;
+```
+
+### 3. Supabase Setup
+
+1. Buat project baru di [Supabase](https://supabase.com)
+2. Buat bucket storage dengan nama `receipt-images`
+3. Set bucket policy untuk public access
+4. Copy URL dan anon key ke file `.env`
+
+### 4. Gemini API Setup
+
+1. Dapatkan API key dari [Google AI Studio](https://makersuite.google.com/app/apikey)
+2. Copy API key ke file `.env`
+
+## Running the Application
+
+### Development Mode
 
 ```bash
-# unit tests
-$ npm run test
+npm run start:dev
+```
 
-# e2e tests
-$ npm run test:e2e
+### Production Mode
 
-# test coverage
-$ npm run test:cov
+```bash
+npm run build
+npm run start:prod
+```
+
+## API Endpoints
+
+### Authentication
+
+- `POST /auth/register` - Register user baru
+- `POST /auth/login` - Login user
+- `GET /auth/profile` - Get user profile
+
+### OCR & Bills
+
+- `POST /ocr/upload` - Upload dan proses struk
+- `GET /ocr/bills` - Get semua tagihan user
+- `GET /ocr/bills/:id` - Get detail tagihan
+- `PUT /ocr/bills/:id/split` - Update split details
+- `DELETE /ocr/bills/:id` - Hapus tagihan
+
+## Project Structure
+
+```
+src/
+├── auth/                 # Authentication module
+│   ├── dto/             # Data transfer objects
+│   ├── entities/        # User entity
+│   ├── auth.controller.ts
+│   ├── auth.service.ts
+│   └── auth.module.ts
+├── ocr/                 # OCR & Bill management module
+│   ├── entities/        # Bill entity
+│   ├── ocr.controller.ts
+│   ├── ocr.service.ts
+│   ├── ocr.module.ts
+│   └── tesseract-fix.ts # Tesseract wrapper
+├── app.controller.ts     # Main app controller
+├── app.service.ts        # Main app service
+├── app.module.ts         # Root module
+└── main.ts              # Application entry point
+```
+
+## Testing
+
+```bash
+# Unit tests
+npm run test
+
+# E2E tests
+npm run test:e2e
+
+# Test coverage
+npm run test:cov
 ```
 
 ## Deployment
 
-When you're ready to deploy your NestJS application to production, there are some key steps you can take to ensure it runs as efficiently as possible. Check out the [deployment documentation](https://docs.nestjs.com/deployment) for more information.
+### Vercel
 
-If you are looking for a cloud-based platform to deploy your NestJS application, check out [Mau](https://mau.nestjs.com), our official platform for deploying NestJS applications on AWS. Mau makes deployment straightforward and fast, requiring just a few simple steps:
+Project ini sudah dikonfigurasi untuk deployment di Vercel dengan file `vercel.json`.
 
-```bash
-$ npm install -g @nestjs/mau
-$ mau deploy
-```
+### Environment Variables di Production
 
-With Mau, you can deploy your application in just a few clicks, allowing you to focus on building features rather than managing infrastructure.
+Pastikan semua environment variables sudah diset di dashboard Vercel:
 
-## Resources
+- `DATABASE_URL`
+- `JWT_SECRET`
+- `SUPABASE_URL`
+- `SUPABASE_KEY`
+- `GEMINI_API_KEY`
 
-Check out a few resources that may come in handy when working with NestJS:
+## Troubleshooting
 
-- Visit the [NestJS Documentation](https://docs.nestjs.com) to learn more about the framework.
-- For questions and support, please visit our [Discord channel](https://discord.gg/G7Qnnhy).
-- To dive deeper and get more hands-on experience, check out our official video [courses](https://courses.nestjs.com/).
-- Deploy your application to AWS with the help of [NestJS Mau](https://mau.nestjs.com) in just a few clicks.
-- Visualize your application graph and interact with the NestJS application in real-time using [NestJS Devtools](https://devtools.nestjs.com).
-- Need help with your project (part-time to full-time)? Check out our official [enterprise support](https://enterprise.nestjs.com).
-- To stay in the loop and get updates, follow us on [X](https://x.com/nestframework) and [LinkedIn](https://linkedin.com/company/nestjs).
-- Looking for a job, or have a job to offer? Check out our official [Jobs board](https://jobs.nestjs.com).
+### OCR Issues
 
-## Support
+- Pastikan Tesseract worker sudah ter-load dengan benar
+- Check log untuk error messages
+- Pastikan gambar yang diupload valid dan readable
 
-Nest is an MIT-licensed open source project. It can grow thanks to the sponsors and support by the amazing backers. If you'd like to join them, please [read more here](https://docs.nestjs.com/support).
+### Supabase Issues
 
-## Stay in touch
+- Verify bucket `receipt-images` sudah dibuat
+- Check bucket policies untuk public access
+- Verify API keys sudah benar
 
-- Author - [Kamil Myśliwiec](https://twitter.com/kammysliwiec)
-- Website - [https://nestjs.com](https://nestjs.com/)
-- Twitter - [@nestframework](https://twitter.com/nestframework)
+### Gemini API Issues
+
+- Check API key validity
+- Verify quota dan rate limits
+- Check network connectivity
+
+## Contributing
+
+1. Fork the repository
+2. Create feature branch (`git checkout -b feature/amazing-feature`)
+3. Commit changes (`git commit -m 'Add amazing feature'`)
+4. Push to branch (`git push origin feature/amazing-feature`)
+5. Open Pull Request
 
 ## License
 
-Nest is [MIT licensed](https://github.com/nestjs/nest/blob/master/LICENSE).
+This project is licensed under the MIT License.

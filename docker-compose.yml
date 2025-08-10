@@ -1,16 +1,33 @@
 version: '3.8'
 services:
   postgres:
-    image: postgres:15 # Gunakan image resmi PostgreSQL versi 15
+    image: postgres:15
     container_name: splitbill_db
     environment:
-      POSTGRES_USER: user
+      POSTGRES_USER: postgres
       POSTGRES_PASSWORD: password
-      POSTGRES_DB: splitbill
+      POSTGRES_DB: split_bill_db
     ports:
-      - '5433:5432' # Hubungkan port di laptop Anda ke port di dalam Docker
+      - '5432:5432'
     volumes:
-      - postgres_data:/var/lib/postgresql/data # Agar data tidak hilang saat container mati
+      - postgres_data:/var/lib/postgresql/data
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # Optional: Redis untuk caching (bisa diaktifkan nanti)
+  # redis:
+  #   image: redis:7-alpine
+  #   container_name: splitbill_redis
+  #   ports:
+  #     - '6379:6379'
+  #   volumes:
+  #     - redis_data:/data
+  #   restart: unless-stopped
 
 volumes:
   postgres_data:
+  # redis_data:
