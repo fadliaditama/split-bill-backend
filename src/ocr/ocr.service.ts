@@ -8,7 +8,7 @@ import { firstValueFrom } from 'rxjs';
 import { AxiosError } from 'axios';
 import { ConfigService } from '@nestjs/config';
 import { createClient, SupabaseClient } from '@supabase/supabase-js';
-import * as FormData from 'form-data';
+import FormData = require('form-data');
 
 @Injectable()
 export class OcrService {
