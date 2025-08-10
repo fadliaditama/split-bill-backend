@@ -1,41 +1,53 @@
 import { Entity, PrimaryGeneratedColumn, Column, ManyToOne, JoinColumn } from 'typeorm';
 import { User } from '../../auth/entities/user.entity';
 
+// EXPORT enum ini agar bisa diakses dari file lain
+export enum BillStatus {
+  PROCESSING = 'PROCESSING',
+  COMPLETED = 'COMPLETED',
+  FAILED = 'FAILED',
+}
+
 @Entity()
 export class Bill {
-    @PrimaryGeneratedColumn('uuid')
-    id: string;
+  @PrimaryGeneratedColumn('uuid')
+  id: string;
 
-    @Column({ type: 'varchar', length: 255, nullable: true }) // Kolom untuk nama toko
-    storeName: string;
+  @Column({ type: 'varchar', length: 255, nullable: true })
+  storeName: string;
 
-    @Column({ type: 'text', nullable: true }) // Kolom untuk lokasi
-    storeLocation: string;
+  @Column({ type: 'text', nullable: true })
+  storeLocation: string;
 
-    @Column({ type: 'date', nullable: true }) // Kolom untuk tanggal belanja
-    purchaseDate: Date;
+  @Column({ type: 'date', nullable: true })
+  purchaseDate: Date;
 
-    // Menyimpan daftar barang dalam format JSON
-    @Column({ type: 'jsonb', default: [] })
-    items: any[];
+  @Column({ type: 'jsonb', default: [] })
+  items: any[];
 
-    @Column({nullable: true})
-    total: number;
+  @Column({type: 'float', default: 0})
+  total: number;
 
-    @Column({ type: 'text' })
-    rawText: string;
+  @Column({ type: 'text', nullable: true })
+  rawText: string;
+  
+  @Column({ type: 'text', nullable: true })
+  imageUrl: string;
 
-    @Column({ type: 'timestamp', default: () => 'CURRENT_TIMESTAMP' })
-    createdAt: Date;
+  @Column({ type: 'jsonb', nullable: true })
+  splitDetails: any;
 
-    @Column({ type: 'text', nullable: true })
-    imageUrl: string;
+  @Column({
+    type: 'enum',
+    enum: BillStatus,
+    default: BillStatus.PROCESSING,
+  })
+  status: BillStatus;
 
-    @Column({ type: 'jsonb', nullable: true })
-    splitDetails: any;
+  @Column({ type: 'timestamp', default: () => 'CURRENT_TIMESTAMP' })
+  createdAt: Date;
 
-    // Menandakan satu Bill dimiliki oleh satu User
-    @ManyToOne(() => User, (user) => user.bills)
-    @JoinColumn({ name: 'userId' }) // Ini akan membuat kolom 'userId' di tabel
-    user: User;
+  @ManyToOne(() => User, (user) => user.bills)
+  @JoinColumn({ name: 'userId' })
+  user: User;
 }

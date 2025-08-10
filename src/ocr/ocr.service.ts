@@ -1,18 +1,17 @@
-import { BadRequestException, Injectable, InternalServerErrorException, NotFoundException, ServiceUnavailableException, UnauthorizedException, OnModuleInit, OnModuleDestroy, Logger } from '@nestjs/common';
+import { BadRequestException, Injectable, InternalServerErrorException, NotFoundException, ServiceUnavailableException, UnauthorizedException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { User } from '../auth/entities/user.entity';
-import { Bill } from './entities/bill.entity';
+import { Bill, BillStatus } from './entities/bill.entity';
 import { HttpService } from '@nestjs/axios';
 import { firstValueFrom } from 'rxjs';
 import { AxiosError } from 'axios';
 import { ConfigService } from '@nestjs/config';
 import { createClient, SupabaseClient } from '@supabase/supabase-js';
-import { TesseractFix } from './tesseract-fix';
+import * as FormData from 'form-data';
 
 @Injectable()
-export class OcrService implements OnModuleInit, OnModuleDestroy {
-    private readonly logger = new Logger(OcrService.name);
+export class OcrService {
     private supabase: SupabaseClient;
 
     constructor(
@@ -23,142 +22,23 @@ export class OcrService implements OnModuleInit, OnModuleDestroy {
     ) {
         const supabaseUrl = this.configService.get<string>('SUPABASE_URL');
         const supabaseKey = this.configService.get<string>('SUPABASE_KEY');
-
         if (!supabaseUrl || !supabaseKey) {
-            this.logger.error('Supabase configuration missing');
             throw new Error('Supabase URL and Key must be provided in .env file');
         }
-
-        try {
-            this.supabase = createClient(supabaseUrl, supabaseKey);
-            this.logger.log('Supabase client initialized successfully');
-        } catch (error) {
-            this.logger.error('Failed to initialize Supabase client:', error);
-            throw new Error('Failed to initialize Supabase client');
-        }
-    }
-
-    async onModuleInit() {
-        try {
-            this.logger.log('Initializing Tesseract worker...');
-            await TesseractFix.preload();
-            this.logger.log('Tesseract worker initialized successfully');
-        } catch (error) {
-            this.logger.error('Failed to preload Tesseract worker:', error);
-            this.logger.warn('OCR service will run with limited functionality');
-            // Don't throw error here, service can still work without OCR
-        }
-    }
-
-    async onModuleDestroy() {
-        try {
-            this.logger.log('Cleaning up Tesseract worker...');
-            await TesseractFix.cleanup();
-            this.logger.log('Tesseract worker cleaned up successfully');
-        } catch (error) {
-            this.logger.error('Error during Tesseract cleanup:', error);
-        }
-    }
-
-    async getBillsForUser(user: User): Promise<Bill[]> {
-        try {
-            const bills = await this.billsRepository.find({
-                where: { user: { id: user.id } },
-                order: { createdAt: 'DESC' },
-            });
-            this.logger.log(`Retrieved ${bills.length} bills for user ${user.id}`);
-            return bills;
-        } catch (error) {
-            this.logger.error(`Error retrieving bills for user ${user.id}:`, error);
-            throw new InternalServerErrorException('Gagal mengambil daftar tagihan.');
-        }
-    }
-
-    async getBillById(billId: string, userId: string): Promise<any> {
-        try {
-            const bill = await this.billsRepository.findOne({
-                where: { id: billId },
-                relations: ['user'],
-            });
-
-            if (!bill) {
-                this.logger.warn(`Bill with ID ${billId} not found`);
-                throw new NotFoundException(`Tagihan dengan ID "${billId}" tidak ditemukan.`);
-            }
-
-            if (bill.user.id !== userId) {
-                this.logger.warn(`User ${userId} attempted to access bill ${billId} owned by user ${bill.user.id}`);
-                throw new UnauthorizedException('Anda tidak memiliki akses ke tagihan ini.');
-            }
-
-            const { user: userData, ...billDetails } = bill;
-            this.logger.log(`Bill ${billId} retrieved successfully for user ${userId}`);
-            return billDetails;
-        } catch (error) {
-            if (error instanceof NotFoundException || error instanceof UnauthorizedException) {
-                throw error;
-            }
-            this.logger.error(`Error retrieving bill ${billId}:`, error);
-            throw new InternalServerErrorException('Gagal mengambil detail tagihan.');
-        }
+        this.supabase = createClient(supabaseUrl, supabaseKey);
     }
 
     async processAndSaveBill(imageBuffer: Buffer, user: User): Promise<any> {
-        if (!imageBuffer || imageBuffer.length === 0) {
-            throw new BadRequestException('Buffer gambar tidak boleh kosong.');
-        }
-
-        if (imageBuffer.length > 10 * 1024 * 1024) { // 10MB limit
-            throw new BadRequestException('Ukuran gambar terlalu besar. Maksimal 10MB.');
-        }
-
-        this.logger.log(`Starting bill processing for user ${user.id}`);
+        const imageUrl = await this.uploadToSupabase(imageBuffer, user.id);
 
         try {
-            // 1. Unggah gambar ke Supabase
-            this.logger.log('Uploading image to Supabase...');
-            const imageUrl = await this.uploadToSupabase(imageBuffer, user.id);
-            this.logger.log('Image uploaded successfully');
-
-            // 2. Lanjutkan proses OCR dan AI dengan TesseractFix
-            this.logger.log('Starting OCR processing...');
-            let rawText: string;
-
-            try {
-                rawText = await TesseractFix.recognizeText(imageBuffer);
-                this.logger.log('OCR completed successfully');
-            } catch (ocrError) {
-                this.logger.error('OCR processing failed:', ocrError);
-
-                // Jika OCR gagal, gunakan placeholder text dan lanjutkan
-                rawText = 'OCR tidak tersedia di environment ini. Silakan upload gambar di environment local untuk hasil yang optimal.';
-                this.logger.warn('Using placeholder text due to OCR failure');
+            const rawText = await this.getTextFromImageWithOcrSpace(imageUrl);
+            const parsedData = await this.extractDataWithGemini(rawText);
+            
+            if (!parsedData || !parsedData.items || parsedData.items.length === 0 || !parsedData.total || parsedData.total <= 0) {
+                throw new Error('AI parsing returned invalid data (no items or zero total).');
             }
 
-            // 3. Ekstrak data dengan AI
-            this.logger.log('Extracting data with AI...');
-            let parsedData;
-
-            try {
-                parsedData = await this.extractDataWithGemini(rawText);
-                this.logger.log('AI data extraction completed');
-            } catch (aiError) {
-                this.logger.error('AI data extraction failed:', aiError);
-
-                // Jika AI gagal, gunakan data default
-                parsedData = {
-                    items: [],
-                    total: 0,
-                    storeName: 'Tidak dapat diidentifikasi',
-                    location: 'Tidak dapat diidentifikasi',
-                    date: null,
-                    tax: 0,
-                    serviceCharge: 0
-                };
-                this.logger.warn('Using default data due to AI extraction failure');
-            }
-
-            // 4. Siapkan data untuk disimpan
             const billData: Partial<Bill> = {
                 items: parsedData.items,
                 total: parsedData.total,
@@ -167,218 +47,157 @@ export class OcrService implements OnModuleInit, OnModuleDestroy {
                 imageUrl: imageUrl,
                 rawText: rawText,
                 user: user,
+                status: BillStatus.COMPLETED,
             };
-
             if (parsedData.date) {
                 billData.purchaseDate = new Date(parsedData.date);
             }
 
             const bill = this.billsRepository.create(billData);
-
             const savedBill = await this.billsRepository.save(bill);
-            const { user: userData, ...billDetails } = savedBill;
-
-            this.logger.log(`Bill processed and saved successfully with ID: ${savedBill.id}`);
+            const { user: _, ...billDetails } = savedBill;
             return billDetails;
+
         } catch (error) {
-            this.logger.error(`Error processing bill for user ${user.id}:`, error);
+            console.error('Gagal memproses struk:', error.message);
+            const bill = this.billsRepository.create({
+                user: user,
+                imageUrl: imageUrl,
+                status: BillStatus.FAILED,
+                rawText: `Gagal memproses struk: ${error.message}`,
+                items: [],
+                total: 0,
+            });
+            await this.billsRepository.save(bill);
+            throw new InternalServerErrorException('Gagal memproses struk setelah diunggah.');
+        }
+    }
 
-            // Cleanup: hapus gambar yang sudah diupload jika ada error
-            if (error instanceof Error && error.message.includes('upload')) {
-                this.logger.warn('Skipping cleanup as upload failed');
+    private async getTextFromImageWithOcrSpace(imageUrl: string): Promise<string> {
+        const apiKey = this.configService.get<string>('OCR_SPACE_API_KEY');
+        if (!apiKey) {
+            throw new InternalServerErrorException('OCR.space API Key not configured in .env file.');
+        }
+
+        const formData = new FormData();
+        formData.append('url', imageUrl);
+        formData.append('language', 'eng');
+        formData.append('isOverlayRequired', 'false');
+        formData.append('OCREngine', '2');
+
+        try {
+            const response = await firstValueFrom(
+                this.httpService.post('https://api.ocr.space/parse/image', formData, {
+                    headers: {
+                        'apikey': apiKey,
+                        ...formData.getHeaders(),
+                    },
+                }),
+            );
+
+            if (response.data.IsErroredOnProcessing || !response.data.ParsedResults?.[0]?.ParsedText) {
+                throw new Error(response.data.ErrorMessage?.[0] || 'Gagal melakukan OCR pada gambar.');
             }
-
-            throw error;
+            
+            return response.data.ParsedResults[0].ParsedText;
+        } catch (error) {
+            // Log error yang lebih detail untuk diagnosis
+            if (error instanceof AxiosError) {
+                console.error('Axios Error when calling OCR.space API:', error.message);
+            } else {
+                console.error('Unknown Error when calling OCR.space API:', error);
+            }
+            throw new InternalServerErrorException('Gagal berkomunikasi dengan layanan OCR.');
         }
     }
 
     private async uploadToSupabase(buffer: Buffer, userId: string): Promise<string> {
         const bucketName = 'receipt-images';
         const fileName = `public/${userId}/${Date.now()}_${Math.round(Math.random() * 1E9)}.jpg`;
-
-        this.logger.log(`Uploading file ${fileName} to bucket ${bucketName}`);
-
-        try {
-            const { data, error } = await this.supabase.storage
-                .from(bucketName)
-                .upload(fileName, buffer, {
-                    contentType: 'image/jpeg',
-                    upsert: false,
-                });
-
-            if (error) {
-                this.logger.error('Supabase upload error:', error);
-                throw new InternalServerErrorException('Gagal mengunggah gambar ke storage.');
-            }
-
-            const { data: { publicUrl } } = this.supabase.storage
-                .from(bucketName)
-                .getPublicUrl(data.path);
-
-            this.logger.log(`File uploaded successfully: ${publicUrl}`);
-            return publicUrl;
-        } catch (error) {
-            this.logger.error('Error in uploadToSupabase:', error);
-            if (error instanceof InternalServerErrorException) {
-                throw error;
-            }
+        const { data, error } = await this.supabase.storage.from(bucketName).upload(fileName, buffer, { contentType: 'image/jpeg', upsert: false });
+        if (error) {
             throw new InternalServerErrorException('Gagal mengunggah gambar ke storage.');
         }
+        const { data: { publicUrl } } = this.supabase.storage.from(bucketName).getPublicUrl(data.path);
+        return publicUrl;
     }
 
-    private async extractDataWithGemini(
-        text: string,
-    ): Promise<{
-        items: any[];
-        total: number;
-        storeName: string;
-        location: string;
-        date: string | null;
-        tax: number;
-        serviceCharge: number;
-    }> {
+    private async extractDataWithGemini(text: string): Promise<{ items: any[]; total: number; storeName: string; location: string; date: string | null; tax: number; serviceCharge: number; }> {
         const apiKey = this.configService.get<string>('GEMINI_API_KEY');
-
-        if (!apiKey) {
-            this.logger.error('Gemini API key not configured');
-            throw new InternalServerErrorException('Konfigurasi API key tidak lengkap.');
-        }
-
         const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash-latest:generateContent?key=${apiKey}`;
-
         const prompt = `
             Analisis teks dari struk belanja ini dan ekstrak informasi berikut ke dalam format JSON yang valid:
-            1. "storeName": Nama toko atau merchant (contoh: "INDOMARET").
-            2. "location": Alamat atau lokasi cabang dari toko (contoh: "CIDATAR - KAB GARUT").
-            3. "date": Tanggal transaksi dalam format YYYY-MM-DD (contoh: "2020-11-07").
-            4. "items": Sebuah array objek, di mana setiap objek berisi "name" (string), "quantity" (number), dan "price" (number, harga total untuk item itu).
-            5. "total": Sebuah number yang merupakan total akhir dari struk.
-            6. "tax": Jumlah total pajak (PPN/PB1). Jika tidak ada, kembalikan 0.
-            7. "serviceCharge": Jumlah total biaya servis. Jika tidak ada, kembalikan 0.
-            Jika salah satu informasi (storeName, location, date) tidak ditemukan, kembalikan nilai null untuk key tersebut.
+            1. "storeName": Nama toko atau merchant.
+            2. "location": Alamat atau lokasi cabang dari toko.
+            3. "date": Tanggal transaksi dalam format YYYY-MM-DD.
+            4. "items": Sebuah array objek. Untuk setiap item, ekstrak:
+                - "name": Nama lengkap barang.
+                - "quantity": Jumlah barang yang dibeli.
+                - "price": Harga total untuk item tersebut (kuantitas dikali harga satuan). PENTING: Selalu ambil angka paling kanan di baris item sebagai harga totalnya.
+            5. "tax": Jumlah total pajak (PPN/PB1). Jika tidak ada, kembalikan 0.
+            6. "serviceCharge": Jumlah total biaya servis. Jika tidak ada, kembalikan 0.
+            7. "total": Total akhir dari struk.
+
+            Jika salah satu informasi tidak ditemukan, kembalikan nilai null untuk key tersebut.
             Hanya kembalikan objek JSON, tanpa penjelasan tambahan atau markdown formatting.
+
             Teks struk:
             ---
             ${text}
             ---
         `;
-
         try {
-            this.logger.log('Sending request to Gemini API...');
-            const response = await firstValueFrom(
-                this.httpService.post(url, { contents: [{ parts: [{ text: prompt }] }] }),
-            );
-
+            const response = await firstValueFrom(this.httpService.post(url, { contents: [{ parts: [{ text: prompt }] }] }));
             if (!response.data.candidates || response.data.candidates.length === 0) {
-                this.logger.error('Gemini API returned no candidates');
                 throw new InternalServerErrorException('AI tidak dapat memproses teks dari struk ini.');
             }
-
             const jsonString = response.data.candidates[0].content.parts[0].text.replace(/```json|```/g, '').trim();
-            const parsedData = JSON.parse(jsonString);
-
-            this.logger.log('Gemini API response parsed successfully');
-            return parsedData;
+            return JSON.parse(jsonString);
         } catch (error) {
             if (error instanceof AxiosError && error.response) {
                 const status = error.response.status;
                 const data = error.response.data.error;
-
-                this.logger.error(`Gemini API error - Status: ${status}, Data:`, data);
-
                 if (status === 400) throw new BadRequestException(`API Key tidak valid atau salah format.`);
                 if (status === 503) throw new ServiceUnavailableException('Model AI sedang sibuk. Coba lagi.');
             }
-
-            if (error instanceof SyntaxError) {
-                this.logger.error('Failed to parse Gemini API response as JSON:', error);
-                throw new InternalServerErrorException('Response dari AI tidak valid. Coba lagi.');
-            }
-
-            this.logger.error('Error communicating with Gemini API:', error);
             throw new InternalServerErrorException('Gagal berkomunikasi dengan layanan AI.');
         }
     }
 
-    async saveSplitDetails(
-        billId: string,
-        saveData: { splitDetails: any, total: number },
-        userId: string
-    ): Promise<Bill> {
-        try {
-            const bill = await this.billsRepository.findOneBy({ id: billId });
-            if (!bill) {
-                this.logger.warn(`Bill with ID ${billId} not found for split details update`);
-                throw new NotFoundException(`Tagihan dengan ID "${billId}" tidak ditemukan.`);
-            }
+    async getBillsForUser(user: User): Promise<Bill[]> {
+        return this.billsRepository.find({ where: { user: { id: user.id } }, order: { createdAt: 'DESC' } });
+    }
 
-            const billWithOwner = await this.billsRepository.findOne({ where: { id: billId }, relations: ['user'] });
-            if (!billWithOwner || billWithOwner.user.id !== userId) {
-                this.logger.warn(`User ${userId} attempted to update split details for bill ${billId} owned by user ${billWithOwner?.user.id}`);
-                throw new UnauthorizedException('Anda tidak memiliki akses ke tagihan ini.');
-            }
+    async getBillById(billId: string, userId: string): Promise<any> {
+        const bill = await this.billsRepository.findOne({ where: { id: billId }, relations: ['user'] });
+        if (!bill) { throw new NotFoundException(`Tagihan dengan ID "${billId}" tidak ditemukan.`); }
+        if (bill.user.id !== userId) { throw new UnauthorizedException('Anda tidak memiliki akses ke tagihan ini.'); }
+        const { user, ...billDetails } = bill;
+        return billDetails;
+    }
 
-            bill.splitDetails = saveData.splitDetails;
-            bill.total = saveData.total;
-
-            const updatedBill = await this.billsRepository.save(bill);
-            this.logger.log(`Split details updated successfully for bill ${billId}`);
-            return updatedBill;
-        } catch (error) {
-            if (error instanceof NotFoundException || error instanceof UnauthorizedException) {
-                throw error;
-            }
-            this.logger.error(`Error updating split details for bill ${billId}:`, error);
-            throw new InternalServerErrorException('Gagal menyimpan detail split bill.');
-        }
+    async saveSplitDetails(billId: string, saveData: { splitDetails: any; total: number }, userId: string): Promise<Bill> {
+        const bill = await this.billsRepository.findOne({ where: { id: billId }, relations: ['user'] });
+        if (!bill) { throw new NotFoundException(`Tagihan dengan ID "${billId}" tidak ditemukan.`); }
+        if (bill.user.id !== userId) { throw new UnauthorizedException('Anda tidak memiliki akses ke tagihan ini.'); }
+        bill.splitDetails = saveData.splitDetails;
+        bill.total = saveData.total;
+        return this.billsRepository.save(bill);
     }
 
     async deleteBill(billId: string, userId: string): Promise<{ message: string }> {
-        this.logger.log(`User ${userId} attempting to delete bill ${billId}`);
-
-        try {
-            // 1. Verifikasi kepemilikan tagihan
-            const bill = await this.billsRepository.findOne({
-                where: { id: billId },
-                relations: ['user'],
-            });
-
-            if (!bill) {
-                this.logger.warn(`Bill with ID ${billId} not found for deletion`);
-                throw new NotFoundException(`Tagihan dengan ID "${billId}" tidak ditemukan.`);
+        const bill = await this.billsRepository.findOne({ where: { id: billId }, relations: ['user'] });
+        if (!bill) { throw new NotFoundException(`Tagihan dengan ID "${billId}" tidak ditemukan.`); }
+        if (bill.user.id !== userId) { throw new UnauthorizedException('Anda tidak memiliki akses ke tagihan ini.'); }
+        if (bill.imageUrl) {
+            try {
+                const filePath = bill.imageUrl.substring(bill.imageUrl.indexOf('public/'));
+                await this.supabase.storage.from('receipt-images').remove([filePath]);
+            } catch (storageError) {
+                console.error('Gagal menghapus file dari storage:', storageError);
             }
-
-            if (bill.user.id !== userId) {
-                this.logger.warn(`User ${userId} attempted to delete bill ${billId} owned by user ${bill.user.id}`);
-                throw new UnauthorizedException('Anda tidak memiliki akses ke tagihan ini.');
-            }
-
-            // 2. Hapus gambar dari Supabase Storage (jika ada)
-            if (bill.imageUrl) {
-                try {
-                    this.logger.log(`Deleting image from storage for bill ${billId}`);
-                    const filePath = bill.imageUrl.substring(bill.imageUrl.indexOf('public/'));
-                    const bucketName = 'receipt-images';
-
-                    await this.supabase.storage.from(bucketName).remove([filePath]);
-                    this.logger.log(`Image deleted successfully from storage`);
-                } catch (storageError) {
-                    this.logger.error(`Failed to delete image from storage for bill ${billId}:`, storageError);
-                    // Tetap lanjutkan meskipun gagal hapus file
-                }
-            }
-
-            // 3. Hapus data dari database PostgreSQL
-            await this.billsRepository.remove(bill);
-            this.logger.log(`Bill ${billId} deleted successfully from database`);
-
-            return { message: 'Transaksi berhasil dihapus.' };
-        } catch (error) {
-            if (error instanceof NotFoundException || error instanceof UnauthorizedException) {
-                throw error;
-            }
-            this.logger.error(`Error deleting bill ${billId}:`, error);
-            throw new InternalServerErrorException('Gagal menghapus tagihan.');
         }
+        await this.billsRepository.remove(bill);
+        return { message: 'Transaksi berhasil dihapus.' };
     }
 }
