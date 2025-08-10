@@ -8,8 +8,18 @@ import { createWorker } from 'tesseract.js';
 // Cache untuk worker agar tidak perlu buat ulang setiap kali
 let cachedWorker: any = null;
 let isWorkerInitialized = false;
+let isVercelEnvironment = false;
 
 export class TesseractFix {
+    /**
+     * Deteksi apakah running di Vercel
+     */
+    private static detectEnvironment(): boolean {
+        return process.env.VERCEL === '1' ||
+            process.env.NODE_ENV === 'production' ||
+            process.env.VERCEL_ENV === 'production';
+    }
+
     /**
      * Inisialisasi worker dengan konfigurasi khusus untuk Vercel
      */
@@ -18,11 +28,14 @@ export class TesseractFix {
             return cachedWorker;
         }
 
-        try {
-            console.log('Initializing Tesseract worker...');
+        // Deteksi environment
+        isVercelEnvironment = this.detectEnvironment();
 
-            // Buat worker dengan konfigurasi minimal
-            const worker = await createWorker('ind', 1, {
+        try {
+            console.log(`Initializing Tesseract worker in ${isVercelEnvironment ? 'Vercel' : 'local'} environment...`);
+
+            // Konfigurasi khusus untuk Vercel
+            const workerOptions: any = {
                 logger: m => {
                     // Hanya log progress penting
                     if (m.status === 'recognizing text') {
@@ -32,7 +45,17 @@ export class TesseractFix {
                 errorHandler: err => {
                     console.error('Tesseract worker error:', err);
                 }
-            });
+            };
+
+            // Tambahkan konfigurasi khusus untuk Vercel
+            if (isVercelEnvironment) {
+                workerOptions.workerPath = undefined; // Gunakan default
+                workerOptions.corePath = undefined; // Gunakan default
+                workerOptions.langPath = undefined; // Gunakan default
+            }
+
+            // Buat worker dengan konfigurasi minimal
+            const worker = await createWorker('ind', 1, workerOptions);
 
             cachedWorker = worker;
             isWorkerInitialized = true;
@@ -42,6 +65,13 @@ export class TesseractFix {
 
         } catch (error) {
             console.error('Failed to initialize Tesseract worker:', error);
+
+            // Jika di Vercel dan gagal, set flag untuk gunakan fallback
+            if (isVercelEnvironment) {
+                console.log('Running in Vercel environment, OCR will use fallback methods');
+                return null;
+            }
+
             throw error;
         }
     }
@@ -50,6 +80,12 @@ export class TesseractFix {
      * Lakukan OCR dengan retry dan fallback
      */
     static async recognizeText(imageBuffer: Buffer, maxRetries: number = 3): Promise<string> {
+        // Jika di Vercel dan worker gagal diinisialisasi, gunakan fallback
+        if (isVercelEnvironment && !cachedWorker) {
+            console.log('Using fallback OCR method for Vercel environment');
+            return this.fallbackOCR(imageBuffer);
+        }
+
         let lastError: any = null;
 
         for (let attempt = 1; attempt <= maxRetries; attempt++) {
@@ -57,6 +93,10 @@ export class TesseractFix {
                 console.log(`OCR attempt ${attempt}/${maxRetries}`);
 
                 const worker = await this.initializeWorker();
+
+                if (!worker) {
+                    throw new Error('Worker not available');
+                }
 
                 // Lakukan OCR dengan timeout
                 const result = await Promise.race([
@@ -95,10 +135,23 @@ export class TesseractFix {
             }
         }
 
-        // Jika semua retry gagal, coba dengan bahasa Inggris sebagai fallback terakhir
+        // Jika semua retry gagal, gunakan fallback
+        console.log('All OCR attempts failed, using fallback method...');
+        return this.fallbackOCR(imageBuffer);
+    }
+
+    /**
+     * Fallback OCR method untuk Vercel environment
+     */
+    private static async fallbackOCR(imageBuffer: Buffer): Promise<string> {
         try {
-            console.log('Trying final fallback with English language...');
-            const fallbackWorker = await createWorker('eng');
+            console.log('Attempting fallback OCR with English language...');
+
+            // Coba buat worker baru dengan bahasa Inggris
+            const fallbackWorker = await createWorker('eng', 1, {
+                logger: m => console.log(`Fallback OCR: ${m.status}`),
+                errorHandler: err => console.error('Fallback worker error:', err)
+            });
 
             const fallbackResult = await fallbackWorker.recognize(imageBuffer);
             await fallbackWorker.terminate();
@@ -108,11 +161,12 @@ export class TesseractFix {
                 return fallbackResult.data.text;
             }
         } catch (fallbackError) {
-            console.error('Final fallback also failed:', fallbackError);
+            console.error('Fallback OCR failed:', fallbackError);
         }
 
-        // Jika semua gagal, throw error
-        throw new Error(`OCR failed after ${maxRetries} attempts. Last error: ${lastError?.message}`);
+        // Jika semua fallback gagal, return placeholder text
+        console.log('All OCR methods failed, returning placeholder text');
+        return 'OCR tidak tersedia di environment ini. Silakan upload gambar di environment local.';
     }
 
     /**
@@ -136,10 +190,19 @@ export class TesseractFix {
      */
     static async preload(): Promise<void> {
         try {
+            // Deteksi environment terlebih dahulu
+            isVercelEnvironment = this.detectEnvironment();
+
+            if (isVercelEnvironment) {
+                console.log('Skipping Tesseract preload in Vercel environment');
+                return;
+            }
+
             await this.initializeWorker();
             console.log('Tesseract worker preloaded successfully');
         } catch (error) {
             console.error('Failed to preload worker:', error);
+            // Jangan throw error, biarkan service tetap berjalan
         }
     }
 } 

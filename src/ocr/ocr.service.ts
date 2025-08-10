@@ -45,6 +45,7 @@ export class OcrService implements OnModuleInit, OnModuleDestroy {
             this.logger.log('Tesseract worker initialized successfully');
         } catch (error) {
             this.logger.error('Failed to preload Tesseract worker:', error);
+            this.logger.warn('OCR service will run with limited functionality');
             // Don't throw error here, service can still work without OCR
         }
     }
@@ -121,13 +122,43 @@ export class OcrService implements OnModuleInit, OnModuleDestroy {
 
             // 2. Lanjutkan proses OCR dan AI dengan TesseractFix
             this.logger.log('Starting OCR processing...');
-            const rawText = await TesseractFix.recognizeText(imageBuffer);
-            this.logger.log('OCR completed, extracting data with AI...');
+            let rawText: string;
 
-            const parsedData = await this.extractDataWithGemini(rawText);
-            this.logger.log('AI data extraction completed');
+            try {
+                rawText = await TesseractFix.recognizeText(imageBuffer);
+                this.logger.log('OCR completed successfully');
+            } catch (ocrError) {
+                this.logger.error('OCR processing failed:', ocrError);
 
-            // 3. Siapkan data untuk disimpan
+                // Jika OCR gagal, gunakan placeholder text dan lanjutkan
+                rawText = 'OCR tidak tersedia di environment ini. Silakan upload gambar di environment local untuk hasil yang optimal.';
+                this.logger.warn('Using placeholder text due to OCR failure');
+            }
+
+            // 3. Ekstrak data dengan AI
+            this.logger.log('Extracting data with AI...');
+            let parsedData;
+
+            try {
+                parsedData = await this.extractDataWithGemini(rawText);
+                this.logger.log('AI data extraction completed');
+            } catch (aiError) {
+                this.logger.error('AI data extraction failed:', aiError);
+
+                // Jika AI gagal, gunakan data default
+                parsedData = {
+                    items: [],
+                    total: 0,
+                    storeName: 'Tidak dapat diidentifikasi',
+                    location: 'Tidak dapat diidentifikasi',
+                    date: null,
+                    tax: 0,
+                    serviceCharge: 0
+                };
+                this.logger.warn('Using default data due to AI extraction failure');
+            }
+
+            // 4. Siapkan data untuk disimpan
             const billData: Partial<Bill> = {
                 items: parsedData.items,
                 total: parsedData.total,
