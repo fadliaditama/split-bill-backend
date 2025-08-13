@@ -1,6 +1,7 @@
 import { NestFactory } from '@nestjs/core';
 import { AppModule } from './app.module';
 import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
+import { setDefaultResultOrder } from 'dns';
 setDefaultResultOrder('ipv4first');
 
 async function bootstrap() {
