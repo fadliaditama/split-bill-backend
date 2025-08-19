@@ -13,6 +13,15 @@ class SaveSplitDto {
   
     @ApiProperty()
     total: number;
+
+    @ApiProperty({ required: false })
+    storeName?: string;
+
+    @ApiProperty({ required: false })
+    storeLocation?: string;
+
+    @ApiProperty({ required: false })
+    purchaseDate?: Date;
   }
 
 @ApiTags('OCR')

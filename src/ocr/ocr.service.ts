@@ -176,12 +176,23 @@ export class OcrService {
         return billDetails;
     }
 
-    async saveSplitDetails(billId: string, saveData: { splitDetails: any; total: number }, userId: string): Promise<Bill> {
+    async saveSplitDetails(billId: string, saveData: { splitDetails: any; total: number, storeName?: string,
+        storeLocation?: string,
+        purchaseDate?: Date }, userId: string): Promise<Bill> {
         const bill = await this.billsRepository.findOne({ where: { id: billId }, relations: ['user'] });
         if (!bill) { throw new NotFoundException(`Tagihan dengan ID "${billId}" tidak ditemukan.`); }
         if (bill.user.id !== userId) { throw new UnauthorizedException('Anda tidak memiliki akses ke tagihan ini.'); }
         bill.splitDetails = saveData.splitDetails;
         bill.total = saveData.total;
+        if (saveData.storeName) {
+            bill.storeName = saveData.storeName;
+        }
+        if (saveData.storeLocation) {
+            bill.storeLocation = saveData.storeLocation;
+        }
+        if (saveData.purchaseDate) {
+            bill.purchaseDate = saveData.purchaseDate;
+        }
         return this.billsRepository.save(bill);
     }
 
